@@ -1,0 +1,25 @@
+# Local assistant notes — not part of the repository
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Environment & OS
+.env
+.env.*
+!.env.example
+.DS_Store
+.vscode/
+.idea/
