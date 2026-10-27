@@ -1,0 +1,31 @@
+{
+  "pull_requests": [
+    {"number": 482, "repo": "acme/payments-api", "title": "Add idempotency keys to refund endpoint", "state": "open", "author": "you", "review_requested": false, "checks": "passing", "updated": "2026-10-28"},
+    {"number": 479, "repo": "acme/web-dashboard", "title": "Migrate settings page to new design tokens", "state": "open", "author": "you", "review_requested": false, "checks": "failing", "updated": "2026-10-27"},
+    {"number": 471, "repo": "acme/infra-terraform", "title": "Enable versioning on audit-log buckets", "state": "open", "author": "you", "review_requested": false, "checks": "pending", "updated": "2026-10-25"},
+    {"number": 486, "repo": "acme/payments-api", "title": "Bump fastapi from 0.114 to 0.115", "state": "open", "author": "dependabot[bot]", "review_requested": true, "checks": "passing", "updated": "2026-10-29"},
+    {"number": 1203, "repo": "acme/web-dashboard", "title": "Fix timezone drift in usage charts", "state": "open", "author": "jlee", "review_requested": true, "checks": "passing", "updated": "2026-10-28"},
+    {"number": 465, "repo": "acme/payments-api", "title": "Retry webhook deliveries with exponential backoff", "state": "merged", "author": "you", "review_requested": false, "checks": "passing", "updated": "2026-10-21"}
+  ],
+  "commits": [
+    {"sha": "9f3c2a1", "repo": "acme/payments-api", "branch": "feat/idempotency", "message": "Store idempotency key hash on refund records", "date": "2026-10-28"},
+    {"sha": "4b81e07", "repo": "acme/payments-api", "branch": "feat/idempotency", "message": "Add migration for refund_idempotency table", "date": "2026-10-28"},
+    {"sha": "e12d9c4", "repo": "acme/web-dashboard", "branch": "chore/design-tokens", "message": "Replace hard-coded colours with tokens", "date": "2026-10-27"},
+    {"sha": "77aa310", "repo": "acme/infra-terraform", "branch": "main", "message": "Pin AWS provider to 5.72", "date": "2026-10-24"}
+  ],
+  "repositories": [
+    {"name": "acme/payments-api", "language": "Python", "open_issues": 7, "visibility": "private"},
+    {"name": "acme/web-dashboard", "language": "TypeScript", "open_issues": 12, "visibility": "private"},
+    {"name": "acme/infra-terraform", "language": "HCL", "open_issues": 3, "visibility": "private"}
+  ],
+  "issues": [
+    {"number": 331, "repo": "acme/web-dashboard", "title": "Export to CSV drops the last row", "labels": ["bug"], "assigned_to_me": true},
+    {"number": 318, "repo": "acme/payments-api", "title": "Document webhook signature verification", "labels": ["docs"], "assigned_to_me": true},
+    {"number": 296, "repo": "acme/web-dashboard", "title": "Dark mode contrast on billing page", "labels": ["bug", "a11y"], "assigned_to_me": false}
+  ],
+  "workflow_runs": [
+    {"id": 90211, "repo": "acme/web-dashboard", "workflow": "CI", "branch": "chore/design-tokens", "status": "failure", "started": "2026-10-27 16:42"},
+    {"id": 90198, "repo": "acme/payments-api", "workflow": "CI", "branch": "feat/idempotency", "status": "success", "started": "2026-10-28 11:05"},
+    {"id": 90187, "repo": "acme/infra-terraform", "workflow": "terraform-plan", "branch": "main", "status": "in_progress", "started": "2026-10-29 09:13"}
+  ]
+}
