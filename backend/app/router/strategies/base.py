@@ -11,6 +11,11 @@ class StrategyResult:
 
     scores: dict[str, float]
     signals: dict[str, list[str]] = field(default_factory=dict)
+    reason: str | None = None
+
+
+class StrategyError(Exception):
+    """A strategy could not produce scores (network error, bad output...)."""
 
 
 class RoutingStrategy(ABC):
