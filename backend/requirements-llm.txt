@@ -1,0 +1,3 @@
+# Optional: only needed for ROUTER_STRATEGY=hybrid
+-r requirements.txt
+anthropic>=2.3
