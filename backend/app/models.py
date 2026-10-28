@@ -25,6 +25,7 @@ class RouteStatus(str, Enum):
     ROUTED = "routed"
     CLARIFY = "clarify"
     FALLBACK = "fallback"
+    MULTI = "multi"
 
 
 class RoutingDecision(BaseModel):
@@ -37,6 +38,10 @@ class RoutingDecision(BaseModel):
     signals: dict[str, list[str]] = Field(default_factory=dict)
     candidates: list[str] = Field(default_factory=list)
     strategy: str
+    # Set by strategies that explain themselves in prose (the LLM strategy).
+    reason: str | None = None
+    # True when the primary strategy was unsure and the escalation strategy decided.
+    escalated: bool = False
 
 
 class QueryResult(BaseModel):
@@ -45,6 +50,8 @@ class QueryResult(BaseModel):
     decision: RoutingDecision
     response: AgentResponse | None = None
     latency_ms: float
+    # Sub-answers when a question was split into parts for different agents.
+    parts: list["QueryResult"] = Field(default_factory=list)
 
 
 class QueryRequest(BaseModel):
