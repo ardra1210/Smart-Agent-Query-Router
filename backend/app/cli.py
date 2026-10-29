@@ -29,17 +29,24 @@ def render(result: QueryResult, trace: bool) -> str:
             if item.subtitle:
                 lines.append(f"      {item.subtitle}")
 
-    if trace:
+    if trace and decision.status is not RouteStatus.MULTI:
+        strategy = f"{decision.strategy} (escalated)" if decision.escalated else decision.strategy
         lines.append(
             f"  ↳ status={decision.status.value} agent={decision.agent} "
-            f"confidence={decision.confidence:.2f} strategy={decision.strategy} "
+            f"confidence={decision.confidence:.2f} strategy={strategy} "
             f"latency={result.latency_ms}ms"
         )
         lines.append(f"    scores={decision.scores}")
         if decision.signals:
             lines.append(f"    signals={decision.signals}")
+        if decision.reason:
+            lines.append(f"    reason={decision.reason}")
         if result.response:
             lines.append(f"    capability={result.response.capability}")
+
+    for part in result.parts:
+        lines.append(f"\n  ── “{part.query}”")
+        lines.append("  " + render(part, trace).replace("\n", "\n  "))
     return "\n".join(lines)
 
 
@@ -58,7 +65,8 @@ def main() -> None:
         return
 
     labels = ", ".join(agent.label for agent in router.agents.values())
-    print(f"Smart Agent Query Router — agents: {labels}. Type 'exit' to quit.")
+    mode = f"{router.strategy.name} + {router.escalation.name}" if router.escalation else router.strategy.name
+    print(f"Smart Agent Query Router — agents: {labels}; routing: {mode}. Type 'exit' to quit.")
     while True:
         try:
             query = input("\n> ").strip()
