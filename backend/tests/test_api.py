@@ -5,8 +5,8 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_health() -> None:
-    assert client.get("/api/health").json() == {"status": "ok"}
+def test_health_reports_routing_mode() -> None:
+    assert client.get("/api/health").json() == {"status": "ok", "strategy": "keyword", "escalation": None}
 
 
 def test_list_agents() -> None:
@@ -29,3 +29,9 @@ def test_query_fallback() -> None:
 
 def test_empty_query_is_rejected() -> None:
     assert client.post("/api/query", json={"query": ""}).status_code == 422
+
+
+def test_compound_query_returns_parts() -> None:
+    body = client.post("/api/query", json={"query": "Show my open PRs and my Linear tickets"}).json()
+    assert body["decision"]["status"] == "multi"
+    assert [part["decision"]["agent"] for part in body["parts"]] == ["GitHubAgent", "LinearAgent"]
