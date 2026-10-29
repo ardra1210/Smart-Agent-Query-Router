@@ -43,5 +43,9 @@
   {"query": "Has anyone approved my code changes?", "expected": "GitHubAgent", "note": "hard: no keywords"},
   {"query": "What did I ship yesterday?", "expected": "GitHubAgent", "note": "hard: no keywords"},
   {"query": "Is anything holding up my work?", "expected": "LinearAgent", "note": "hard: paraphrase of blocked"},
-  {"query": "Build me a sandwich", "expected": "fallback", "note": "hard: keyword false positive"}
+  {"query": "Build me a sandwich", "expected": "fallback", "note": "hard: keyword false positive"},
+  {"query": "Show my open PRs and my Linear tickets", "expected": "multi"},
+  {"query": "Did CI pass? Also what's in the current sprint?", "expected": "multi"},
+  {"query": "List my recent commits and anything blocked", "expected": "multi"},
+  {"query": "Show my open pull requests and recent commits", "expected": "GitHubAgent", "note": "both parts GitHub: one answer"}
 ]
