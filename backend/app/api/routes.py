@@ -7,8 +7,12 @@ api = APIRouter(prefix="/api")
 
 
 @api.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(router: QueryRouter = Depends(get_router)) -> dict[str, str | None]:
+    return {
+        "status": "ok",
+        "strategy": router.strategy.name,
+        "escalation": router.escalation.name if router.escalation else None,
+    }
 
 
 @api.get("/agents", response_model=list[AgentInfo])
