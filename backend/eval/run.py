@@ -1,9 +1,10 @@
 """Measure routing accuracy against a labelled dataset.
 
-    python -m eval.run            # summary + misroutes
-    python -m eval.run --all      # every query
+    python -m eval.run                       # keyword routing: summary + misroutes
+    python -m eval.run --all                 # every query
+    python -m eval.run --strategy hybrid     # keyword + Claude escalation (needs credentials)
 
-Labels are an agent name, "fallback" or "clarify".
+Labels are an agent name, "fallback", "clarify" or "multi".
 """
 
 import argparse
@@ -12,15 +13,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from app.agents import create_agents
 from app.models import RouteStatus
-from app.router import QueryRouter
+from app.router import STRATEGIES, QueryRouter, build_router
 
 DATASET = Path(__file__).parent / "dataset.json"
 
 
 def predict(router: QueryRouter, query: str) -> str:
-    decision = router.decide(query)
+    decision = router.handle(query).decision
     return decision.agent if decision.status is RouteStatus.ROUTED else decision.status.value
 
 
@@ -30,12 +30,13 @@ def evaluate(router: QueryRouter, cases: list[dict]) -> list[tuple[str, str, str
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--strategy", choices=STRATEGIES, default="keyword")
     parser.add_argument("--all", action="store_true", help="print every case, not only misses")
     parser.add_argument("--min-accuracy", type=float, default=0.0, help="exit 1 below this accuracy")
     args = parser.parse_args()
 
     cases = json.loads(DATASET.read_text(encoding="utf-8"))
-    results = evaluate(QueryRouter(create_agents()), cases)
+    results = evaluate(build_router(args.strategy), cases)
     correct = sum(expected == got for _, expected, got in results)
     accuracy = correct / len(results)
 
@@ -44,6 +45,7 @@ def main() -> None:
         totals[expected] += 1
         hits[expected] += expected == got
 
+    print(f"Strategy: {args.strategy}")
     print(f"Accuracy: {correct}/{len(results)} = {accuracy:.1%}\n")
     print(f"{'label':<14}{'correct':>10}")
     for label in sorted(totals):
