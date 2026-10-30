@@ -1,350 +1,216 @@
 # Smart Agent Query Router
 
-Routes a natural-language question to the agent that can answer it — a mock
-**GitHubAgent** or a mock **LinearAgent** — declines anything out of scope with
-`I cannot answer this question.`, and explains every routing decision.
+A small service that takes a question like "show my open pull requests" and sends it to
+the right agent. There are two mock agents, GitHubAgent and LinearAgent. If a question
+isn't about either of them, the router replies with `I cannot answer this question.`
 
-Available as a **web UI** (React + TypeScript + Tailwind), a **REST API** (FastAPI) and
-a **CLI**, and runs with a single `docker compose up`.
+You can use it from the command line, through a FastAPI backend, or in a React web UI.
 
-![Web UI: a routed answer with the "Why this answer?" panel open](docs/screenshots/ui-routed-trace.png)
+![Web UI](docs/screenshots/ui-routed-trace.png)
 
-## Index
+## Contents
 
-1. [Requirements and what's done](#1-requirements-and-whats-done)
-   - [Requirement checklist](#requirement-checklist)
-   - [Run it locally](#run-it-locally)
-   - [API docs (`/docs`) in action](#api-docs-docs-in-action)
+1. [Requirements and what's done](#requirements-and-whats-done)
+   - [Running the backend](#running-the-backend)
+   - [API docs](#api-docs)
    - [CLI](#cli)
-   - [Tests and routing evaluation](#tests-and-routing-evaluation)
-2. [Docker](#2-docker)
-   - [Start the stack](#start-the-stack)
-   - [Calling the API through Docker](#calling-the-api-through-docker)
-   - [Routing logs](#routing-logs)
-   - [Docker commands](#docker-commands)
-3. [Extra features](#3-extra-features)
-   - [Feature list](#feature-list)
-   - [How routing works](#how-routing-works)
-   - [Hybrid routing with Claude (optional)](#hybrid-routing-with-claude-optional)
-   - [Multi-part questions](#multi-part-questions)
-   - [Adding an agent](#adding-an-agent)
-   - [Design decisions](#design-decisions)
-   - [Project layout](#project-layout)
-   - [Continuous integration](#continuous-integration)
-   - [Assumptions](#assumptions)
-   - [Limitations and next steps](#limitations-and-next-steps)
-4. [Frontend](#4-frontend)
-   - [Run the frontend](#run-the-frontend)
-   - [Screens](#screens)
-5. [Command reference](#5-command-reference)
+   - [Tests](#tests)
+2. [Docker](#docker)
+3. [Extra features](#extra-features)
+4. [Frontend](#frontend)
+5. [Commands](#commands)
 
----
+## Requirements and what's done
 
-## 1. Requirements and what's done
+The basic requirements were:
 
-### Requirement checklist
+- Route a question to GitHubAgent or LinearAgent based on what it's asking
+- "Show my open pull requests" should go to GitHubAgent
+- "What issues are assigned to me?" should go to LinearAgent
+- Anything else (like "What's the weather today?") should return exactly
+  `I cannot answer this question.`
+- A CLI or a small API
+- Keep the routing logic separate from the agent logic
+- Nice to have: unit tests, logging of routing decisions, an agent design that's easy
+  to extend
 
-| Requirement | Status | Where |
-|---|---|---|
-| Route a question by intent to **GitHubAgent** or **LinearAgent** | ✅ Done | [router.py](backend/app/router/router.py), [keyword.py](backend/app/router/strategies/keyword.py) |
-| "Show my open pull requests" → GitHubAgent | ✅ Done | [screenshot](#api-docs-docs-in-action), [test_router.py](backend/tests/test_router.py) |
-| "What issues are assigned to me?" → LinearAgent | ✅ Done | [screenshot](#calling-the-api-through-docker), [test_router.py](backend/tests/test_router.py) |
-| Out-of-scope questions return exactly `I cannot answer this question.` | ✅ Done | [screenshot](#api-docs-docs-in-action), `FALLBACK_MESSAGE` in [router.py](backend/app/router/router.py) |
-| CLI **or** minimal API | ✅ Both, plus a web UI | [cli.py](backend/app/cli.py), [routes.py](backend/app/api/routes.py), [frontend/](frontend/) |
-| Clear separation of routing logic and agent logic | ✅ Done | [app/router/](backend/app/router/) never touches agent internals; [app/agents/](backend/app/agents/) never imports the router |
-| Mock agents | ✅ Done | [github_agent.py](backend/app/agents/github_agent.py), [linear_agent.py](backend/app/agents/linear_agent.py), JSON fixtures in [mock_data/](backend/app/agents/mock_data/) |
-| *Nice to have:* unit tests | ✅ 57 tests | [backend/tests/](backend/tests/) |
-| *Nice to have:* logging of routing decisions | ✅ Every decision logged | [screenshot](#routing-logs) |
-| *Nice to have:* extensible agent design | ✅ One file per agent, auto-discovered | [Adding an agent](#adding-an-agent) |
-| README with setup and assumptions | ✅ This file | [Assumptions](#assumptions) |
+All of these are done. There's both a CLI and an API. The routing code lives in
+`backend/app/router/` and the agents live in `backend/app/agents/`. Agents don't import
+anything from the router, and the router only talks to agents through a small interface
+(`name`, `description`, `keywords`, `handle()`). The agents return mock data from JSON
+files.
 
-The three example questions, end to end:
+```text
+> Show my open pull requests
+[GitHubAgent] You have 3 open pull requests.
 
-| Question | Result |
-|---|---|
-| Show my open pull requests | `[GitHubAgent] You have 3 open pull requests.` |
-| What issues are assigned to me? | `[LinearAgent] You have 4 open issues assigned to you.` |
-| What's the weather today? | `I cannot answer this question.` |
+> What issues are assigned to me?
+[LinearAgent] You have 4 open issues assigned to you.
 
-### Run it locally
+> What's the weather today?
+I cannot answer this question.
+```
 
-Requires Python 3.11+ (tested on 3.13). Node.js 20+ is needed only for the web UI.
+### Running the backend
+
+You need Python 3.11 or newer.
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-
-uvicorn app.main:app --reload          # API on http://localhost:8000
-                                       # interactive docs on http://localhost:8000/docs
+uvicorn app.main:app --reload
 ```
 
-Prefer containers? Skip to [Docker](#2-docker).
+The API runs on http://localhost:8000 and the docs are at http://localhost:8000/docs.
 
-### API docs (`/docs`) in action
+### API docs
 
-FastAPI generates interactive Swagger docs at **http://localhost:8000/docs**.
+There are three endpoints:
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/query` | `{"query": "..."}` → answer + routing decision |
-| `GET` | `/api/agents` | Registered agents and their capabilities |
-| `GET` | `/api/health` | Liveness check and the active routing mode |
+- `POST /api/query` takes `{"query": "..."}` and returns the answer plus how it was routed
+- `GET /api/agents` lists the agents and what they can answer
+- `GET /api/health` is a health check
 
-![Swagger UI listing the three endpoints and the schemas](docs/screenshots/api-docs.png)
+![Swagger docs](docs/screenshots/api-docs.png)
 
-**Routed:** `POST /api/query` with *"Which PRs need my review?"* goes to GitHubAgent
-with confidence 1.0. The response shows the scores, the matched keywords (`pull request`,
-`review`) and the capability that answered (`review_requests`).
+Here's a query that gets routed to GitHub. The response includes the score for each
+agent and the keywords that matched.
 
-![Swagger "Try it out": a routed query](docs/screenshots/api-query-routed.png)
+![Routed query in Swagger](docs/screenshots/api-query-routed.png)
 
-**Out of scope:** *"What's the weather today?"* scores 0 for both agents, so the router
-declines with the exact required message.
+And an out-of-scope question, which gets the fallback message:
 
-![Swagger "Try it out": an out-of-scope query](docs/screenshots/api-query-fallback.png)
+![Fallback query in Swagger](docs/screenshots/api-query-fallback.png)
 
-**Health:** `GET /api/health` reports the active routing mode.
+![Health endpoint](docs/screenshots/api-health.png)
 
-![Swagger "Try it out": the health endpoint](docs/screenshots/api-health.png)
-
-`decision.status` is one of:
-
-| Status | Meaning |
-|---|---|
-| `routed` | One agent answered (`decision.agent`, `response`) |
-| `clarify` | The question fits more than one agent; `decision.candidates` lists them |
-| `fallback` | Out of scope: `message` is `I cannot answer this question.` |
-| `multi` | A compound question; each sub-answer is in `parts` |
+The `decision.status` field is `routed`, `clarify`, `fallback` or `multi` (more on the
+last two below).
 
 ### CLI
 
 ```bash
 cd backend
-python -m app.cli                                        # interactive prompt
-python -m app.cli "Show my open pull requests"           # one-shot
-python -m app.cli --trace "Which PRs need my review?"    # include the routing trace
-python -m app.cli --verbose "..."                        # also print the router's log lines
+python -m app.cli                                       # interactive
+python -m app.cli "Show my open pull requests"          # one question
+python -m app.cli --trace "Which PRs need my review?"   # show how it was routed
 ```
 
-![CLI with --trace for a routed and an ambiguous question](docs/screenshots/cli-trace.png)
+![CLI](docs/screenshots/cli-trace.png)
 
-### Tests and routing evaluation
+### Tests
 
 ```bash
 cd backend
-pytest -v                 # 57 unit and API tests
-python -m eval.run        # routing accuracy on a labelled dataset
+pytest -v
+python -m eval.run
 ```
 
-`pytest` covers text normalisation, capability selection, the routing policy
-(threshold, ambiguity, fallback), compound questions, LLM escalation (with a stub),
-the LLM request/response handling (with a fake client, no network), the API, and a
-floor on eval accuracy.
+There are 57 tests covering the text cleanup, the agents, the routing rules, the API and
+the optional LLM part (using a fake client, so no network calls).
 
-![pytest -v: 57 passed](docs/screenshots/tests-pytest.png)
+![pytest](docs/screenshots/tests-pytest.png)
 
-`eval.run` scores the router against [eval/dataset.json](backend/eval/dataset.json):
-49 labelled questions covering GitHub, Linear, out-of-scope, ambiguous, compound and
-deliberately hard cases.
+I also wrote a small set of 49 labelled questions in `eval/dataset.json` to check
+accuracy. It currently gets 44 of them right (89.8%).
 
-![Routing evaluation: 44/49 = 89.8%](docs/screenshots/tests-eval.png)
+![Eval](docs/screenshots/tests-eval.png)
 
-The five misses are intentional hard cases, kept so the score is honest:
+The 5 it misses are ones I added on purpose to see where keyword matching breaks.
+Four of them are questions like "What am I supposed to be working on?" that don't use
+any GitHub or Linear words, so the router declines instead of guessing. The other one is
+"Build me a sandwich", which goes to GitHub because of the word "build". There's a test
+that fails if accuracy drops below 85%, so I notice if a keyword change breaks things.
 
-- Four are paraphrases with no domain keywords ("What am I supposed to be working
-  on?"). They **fail safe**: the router declines rather than guessing wrong. These are
-  exactly the questions [hybrid mode](#hybrid-routing-with-claude-optional) sends to
-  Claude.
-- One is a false positive ("Build me a sandwich" → GitHub, because of "build").
+## Docker
 
-A test ([test_eval.py](backend/tests/test_eval.py)) fails if accuracy ever drops below
-85%, so a keyword change that breaks routing is caught.
-
----
-
-## 2. Docker
-
-The whole app (API + web UI) runs from one command. Only Docker is required.
-
-| Service | Image | Port | Notes |
-|---|---|---|---|
-| `backend` | `python:3.13-slim` + uvicorn | `8000` | Health check on `/api/health` |
-| `frontend` | Node 22 build → `nginx:1.27-alpine` | `3000` | Serves the built UI and proxies `/api` to the backend |
-
-The frontend starts only after the backend reports healthy.
-
-### Start the stack
+To run the backend and the UI together:
 
 ```bash
-docker compose up --build -d     # build and start in the background
-docker compose ps                # check status
+docker compose up --build -d
+docker compose ps
 ```
 
-- Web UI: http://localhost:3000
-- API docs: http://localhost:8000/docs
+The UI is on http://localhost:3000 and the API on http://localhost:8000. The frontend
+container waits until the backend's health check passes before it starts.
 
-![docker compose up and ps: backend healthy, frontend started](docs/screenshots/docker-up.png)
+![docker compose up](docs/screenshots/docker-up.png)
 
-### Calling the API through Docker
-
-Requests to `:3000/api/...` go through nginx to the backend container:
+Calls to `localhost:3000/api` go through nginx to the backend:
 
 ```bash
 curl -s localhost:3000/api/health
-
 curl -s -X POST localhost:3000/api/query \
   -H "Content-Type: application/json" \
-  -d '{"query":"Show my open pull requests"}' | jq
+  -d '{"query":"Show my open pull requests"}'
 ```
 
-![curl through nginx to the backend](docs/screenshots/docker-curl.png)
+![curl through Docker](docs/screenshots/docker-curl.png)
 
-### Routing logs
-
-Every routing decision is logged by the `router` logger with its status, agent,
-confidence, strategy and scores. Here it is for routed, fallback, clarify and multi-part
-questions:
+Every routing decision gets logged, so you can follow along with:
 
 ```bash
 docker compose logs -f backend
 ```
 
-![Backend container logs showing each routing decision](docs/screenshots/docker-logs.png)
+![Backend logs](docs/screenshots/docker-logs.png)
 
-### Docker commands
+To stop everything, run `docker compose down`. Ports and settings can be changed by
+copying `.env.example` to `.env`.
 
-| Task | Command |
-|---|---|
-| Build and start | `docker compose up --build -d` |
-| Status | `docker compose ps` |
-| Follow backend logs | `docker compose logs -f backend` |
-| Follow all logs | `docker compose logs -f` |
-| Stop and remove | `docker compose down` |
-| Rebuild one service | `docker compose up --build -d backend` |
-| Shell into the backend | `docker compose exec backend sh` |
+## Extra features
 
-**Configuration.** Copy [.env.example](.env.example) to `.env` to change ports or the
-routing mode:
+Some things I added beyond the requirements:
 
-```bash
-cp .env.example .env
-```
+**Asking instead of guessing.** "Show my issues" could mean GitHub issues or Linear
+issues. When both agents score about the same, the router asks which one you meant.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `ROUTER_STRATEGY` | `keyword` | `keyword`, or `hybrid` to escalate unsure questions to Claude |
-| `ANTHROPIC_API_KEY` | *(empty)* | Needed only for `hybrid` |
-| `ROUTER_LLM_MODEL` | `claude-opus-5-5` | Model used in `hybrid` mode |
-| `LOG_LEVEL` | `INFO` | Backend log level |
-| `BACKEND_PORT` | `8000` | Host port for the API |
-| `FRONTEND_PORT` | `3000` | Host port for the web UI |
+**Showing why.** Each response includes the scores and matched keywords, so you can see
+why a question went where it did. In the CLI that's `--trace`, and in the UI it's the
+"Why this answer?" section.
 
----
+**Handling short forms.** "PRs", "repo" and "gh" get expanded before matching, and
+plurals are stripped, so "PR" and "pull requests" match the same keywords.
 
-## 3. Extra features
+**Questions with two parts.** "Show my open PRs and my blocked Linear tickets" is split
+and each half goes to its own agent. It only splits when both halves make sense on their
+own and go to different agents.
 
-### Feature list
+**Capabilities inside each agent.** After the router picks an agent, the agent picks
+what to answer: review requests, CI runs, commits, the current sprint, blocked issues,
+and so on.
 
-Beyond the requirements:
-
-| # | Feature | What it does |
-|---|---|---|
-| 1 | **Clarification instead of guessing** | "Show my issues" fits both GitHub and Linear, so the router asks which one. The UI shows one button per tool. |
-| 2 | **Explainable decisions** | Every answer returns each agent's score, the matched keywords and a confidence value ("Why this answer?" in the UI, `--trace` in the CLI). |
-| 3 | **Text normalisation** | Shorthand is expanded (`PRs` → `pull request`, `repo` → `repository`, `gh` → `github`) and plurals are stripped. |
-| 4 | **Multi-part questions** | "Show my open PRs and my blocked Linear tickets" gets one answer from each agent. |
-| 5 | **Optional LLM escalation** | In `hybrid` mode, questions the keyword router can't settle go to Claude. It falls back safely if Claude is unavailable. |
-| 6 | **Two-level routing** | The router picks the agent, and the agent picks a capability (review requests, CI runs, current cycle, blocked issues, …). |
-| 7 | **Plug-in agents** | A new agent is one file. It's auto-discovered and appears in the API, the UI and the LLM's choices. |
-| 8 | **Pluggable scoring** | Keyword and LLM scoring share one interface and one decision policy. |
-| 9 | **Measured accuracy** | A labelled dataset and an accuracy report, with a regression floor enforced by a test. |
-| 10 | **Three interfaces** | Web UI, REST API with Swagger docs, and a CLI with an interactive mode. |
-| 11 | **Docker and CI** | One-command startup with health checks; GitHub Actions runs tests, eval, lint and build. |
-
-### How routing works
-
-```text
-            ┌──────────────┐   scores    ┌──────────────┐  routed   ┌─────────────┐
- query ───► │   Keyword    │ ──────────► │ QueryRouter  │ ────────► │   Agent     │ ──► answer
-            │  strategy    │             │  (policy)    │           │ .handle()   │
-            └──────────────┘             └──────┬───────┘           └─────────────┘
-                                                │ unsure?
-                                                ▼
-                                      ┌──────────────────┐
-                                      │ LLM strategy     │  (optional, ROUTER_STRATEGY=hybrid)
-                                      │ same policy      │
-                                      └────────┬─────────┘
-                                               ▼
-                         route / "Did you mean GitHub or Linear?" / "I cannot answer this question."
-```
-
-1. **Normalise** ([text.py](backend/app/text.py)): lowercase, drop punctuation, expand
-   abbreviations, strip plurals.
-2. **Score** ([keyword.py](backend/app/router/strategies/keyword.py)): each agent
-   declares weighted keywords (`"github": 5`, `"pull request": 3`, `"issue": 2`, …).
-   An agent's score is the sum of the weights found in the question, matched on whole
-   words.
-3. **Decide** ([router.py](backend/app/router/router.py)):
-   - best score below `min_score` (2.0) → **fallback**: `I cannot answer this question.`
-   - runner-up at least 75% of the best → **clarify** instead of guessing
-   - otherwise → **route** to the best agent. Confidence is its share of all the evidence.
-4. **Escalate (optional):** if step 3 ends in fallback or clarify and hybrid mode is on,
-   the question goes to Claude. Its verdict goes through the same rules.
-5. **Answer:** the agent picks one of its *capabilities* and returns a message plus
-   structured items.
-
-Worked example, *"What issues are assigned to me?"*:
-
-| Agent | Matched keywords | Score |
-|---|---|---|
-| GitHubAgent | `issue` (2) | 2.0 |
-| LinearAgent | `issue` (2), `assigned` (2) | 4.0 |
-
-The runner-up (2.0) is 50% of the best (4.0), below the 75% ambiguity ratio, so it
-routes to **LinearAgent** with confidence 4 / (4 + 2) = 0.67. Without "assigned", both
-score 2.0 and the router asks which tool you mean.
-
-### Hybrid routing with Claude (optional)
+**Optional Claude fallback.** If you set `ROUTER_STRATEGY=hybrid` and an
+`ANTHROPIC_API_KEY`, questions the keyword router isn't sure about get sent to Claude.
+Claude has to answer with one of the known agents, "none" or "ambiguous", and if the
+call fails for any reason the router just keeps its keyword answer. It's off by default,
+and I've only tested it with a fake client since I didn't have an API key.
 
 ```bash
-cd backend
 pip install -r requirements-llm.txt
 export ANTHROPIC_API_KEY=...
 export ROUTER_STRATEGY=hybrid
-uvicorn app.main:app --reload
-python -m eval.run --strategy hybrid    # compare against the keyword baseline
+python -m eval.run --strategy hybrid
 ```
 
-- Claude is called **only** when keyword routing ends in fallback or clarify. Confident
-  answers stay instant, free and deterministic.
-- The model must reply with JSON that matches a schema. The agent field is an enum of
-  the registered agents plus `none` and `ambiguous`, so it can't invent an agent.
-- Claude's one-line reason is returned in `decision.reason` and shown in the UI.
-- If the call fails (no credentials, network error, rate limit, refusal), the router logs
-  a warning and keeps the keyword decision. The app never breaks because the LLM is
-  unavailable.
-- The model is configurable with `ROUTER_LLM_MODEL`.
+### How the routing works
 
-Hybrid mode is covered by tests with a stub strategy and a fake client. Its accuracy
-against the live API is measured with `python -m eval.run --strategy hybrid`.
+1. The question is lowercased, punctuation is removed, and short forms are expanded.
+2. Each agent has a list of weighted keywords (for example `"github": 5`,
+   `"pull request": 3`, `"issue": 2`). An agent's score is the total weight of its
+   keywords found in the question.
+3. If the best score is under 2, the router gives the fallback message. If the second
+   best is at least 75% of the best, it asks for clarification. Otherwise it sends the
+   question to the top agent.
 
-### Multi-part questions
-
-[splitter.py](backend/app/router/splitter.py) splits a question on connectors such as
-"and", "also", "plus" and ";". The split is used only if **every** part routes cleanly
-and the parts reach **more than one** agent:
-
-| Question | Result |
-|---|---|
-| Show my open PRs and my blocked Linear tickets | `multi`: GitHub part + Linear part |
-| What bugs and issues do I have | kept as one question, which asks for clarification (the halves don't route on their own) |
-| Show my PRs and my commits | one GitHub answer (both parts go to the same agent) |
+For "What issues are assigned to me?", GitHub matches "issue" (2) and Linear matches
+"issue" and "assigned" (4), so it goes to Linear.
 
 ### Adding an agent
 
-Create one file in `backend/app/agents/`. Nothing else changes:
+Add one file to `backend/app/agents/` and it gets picked up automatically:
 
 ```python
 from app.agents.base import BaseAgent, Reply, capability
@@ -363,169 +229,107 @@ class SlackAgent(BaseAgent):
         return "You have 2 unread mentions.", []
 ```
 
-The registry discovers it on startup. It then appears in `/api/agents`, in the UI
-sidebar, in keyword routing and in the LLM's list of choices.
-
-### Design decisions
-
-- **Routing and agent logic are separate.** Agents expose a small contract (`name`,
-  `label`, `description`, `keywords`, `handle(query)`). The router only scores and
-  dispatches. Agents never see the router or each other.
-- **Deterministic first, LLM second.** Keyword routing is instant, free, testable and
-  explainable, and handles most questions. The LLM is used only where keywords fail.
-- **Ask, don't guess.** Equal evidence for two agents triggers a clarification.
-- **Fail closed.** Weak evidence returns `I cannot answer this question.` rather than a
-  best guess. An unavailable LLM falls back to keyword routing.
-- **One decision policy.** Strategies only return scores. Threshold, ambiguity,
-  escalation and multi-part logic all live in `QueryRouter`.
-- **Two-level routing.** The router picks the agent and the agent picks a capability, so
-  agents can grow without touching the router.
-
-### Project layout
+### Project structure
 
 ```text
 backend/
-├── app/
-│   ├── agents/              # agent logic: knows nothing about routing
-│   │   ├── base.py          # BaseAgent contract + @capability decorator
-│   │   ├── registry.py      # @register_agent + auto-discovery
-│   │   ├── github_agent.py
-│   │   ├── linear_agent.py
-│   │   └── mock_data/       # JSON fixtures standing in for real APIs
-│   ├── router/              # routing logic: knows nothing about agent internals
-│   │   ├── router.py        # QueryRouter: decision policy, escalation, dispatch
-│   │   ├── splitter.py      # compound-question splitting
-│   │   └── strategies/      # keyword (default) and llm (optional) scoring
-│   ├── api/routes.py        # FastAPI endpoints
-│   ├── cli.py               # command-line interface
-│   ├── models.py            # shared Pydantic models
-│   └── text.py              # normalisation helpers
-├── eval/                    # labelled dataset + accuracy report
-├── tests/
-└── Dockerfile
+  app/
+    agents/       GitHubAgent, LinearAgent, base class, registry, mock data
+    router/       QueryRouter, keyword and LLM scoring, question splitter
+    api/          FastAPI routes
+    cli.py
+    models.py
+  eval/           labelled questions and accuracy script
+  tests/
 frontend/
-├── src/
-│   ├── App.tsx              # chat state, layout, example questions
-│   ├── api.ts               # typed API client
-│   ├── types.ts             # mirrors backend models
-│   └── components/          # AssistantMessage, RoutingTrace, Sidebar, Composer, StatusBadge
-├── nginx.conf               # serves the UI, proxies /api in Docker
-└── Dockerfile
+  src/            React app and components
 docker-compose.yml
-.github/workflows/ci.yml
+.github/workflows/ci.yml   runs tests, eval, lint and build on each push
 ```
 
-### Continuous integration
+### Assumptions and limitations
 
-[.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every push and pull request:
+- All data is mocked, and "you" in the data means the current user.
+- Questions are assumed to be in English.
+- "Issues" on its own is treated as ambiguous since both tools have issues.
+- Keyword matching misses questions that don't use any related words. The Claude
+  option is meant to help with those.
+- There's no conversation memory, so answering a clarification means asking again
+  (the buttons in the UI do this for you).
+- There are no real GitHub or Linear API calls. The agents could be pointed at real APIs
+  later without changing the router.
 
-| Job | Steps |
-|---|---|
-| backend | install → `pytest -q` → `python -m eval.run --min-accuracy 0.85` |
-| frontend | `npm ci` → `npm run lint` → `npm run build` |
+## Frontend
 
-### Assumptions
-
-- All agent data is mocked. "You" in the fixtures stands for the current user.
-- Questions are in English.
-- "Issues" alone is ambiguous (both GitHub and Linear have issues), so it triggers
-  clarification. "Assigned", "ticket", "sprint" and similar words tip it toward Linear.
-- Compound questions are split only on explicit connectors ("and", "also", ";", …).
-
-### Limitations and next steps
-
-- **Keyword routing misses paraphrases** with no overlapping words. Hybrid mode
-  addresses this, at the cost of an API call for those questions.
-- **Confident keyword false positives are not re-checked** ("Build me a sandwich").
-  A next step is escalating weak single-keyword matches too.
-- **No conversation state.** A clarification is answered by asking again (the UI
-  buttons do this automatically) rather than replying "Linear".
-- **No real integrations or auth.** Agents read local JSON fixtures. Real GitHub or
-  Linear clients could replace the fixture loader behind the same agent interface.
-
----
-
-## 4. Frontend
-
-React 19 + TypeScript + Tailwind CSS v4, built with Vite.
-
-### Run the frontend
-
-With the backend running on :8000:
+Built with React, TypeScript, Tailwind and Vite. With the backend running:
 
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173 (proxies /api to :8000)
-npm run build        # type-check + production build
-npm run lint         # oxlint
+npm run dev
 ```
 
-For a separately hosted backend, set `VITE_API_URL` before building. In Docker the UI is
-served on http://localhost:3000.
+It opens on http://localhost:5173 and forwards `/api` requests to the backend.
 
-### Screens
+The home screen lists the agents on the left with what each one can answer, and has a
+few example questions to try.
 
-**Home.** The sidebar lists the agents and their capabilities (loaded from
-`/api/agents`), backend status, running counts of each outcome, and the routing mode.
-Example questions can be clicked to try the router.
+![Home](docs/screenshots/ui-home.png)
 
-![Home screen with example questions](docs/screenshots/ui-home.png)
+A routed answer, with "Why this answer?" opened:
 
-**Routed answer with "Why this answer?"** Answers render as cards with status badges.
-The panel shows each agent's score bar, the matched keywords, the strategy, the decision
-and the capability that answered.
+![Routed answer](docs/screenshots/ui-routed-trace.png)
 
-![Routed GitHub answer with the routing trace open](docs/screenshots/ui-routed-trace.png)
+A Linear question:
 
-**Linear answer.** *"What issues are assigned to me?"* routes to Linear's
-`assigned_issues` capability.
+![Linear answer](docs/screenshots/ui-linear.png)
 
-![Linear answer for assigned issues](docs/screenshots/ui-linear.png)
+When a question is ambiguous you get a button for each tool:
 
-**Clarification.** *"Show my issues"* fits both tools, so the router asks. Each
-candidate is a button.
+![Clarification](docs/screenshots/ui-clarify.png)
 
-![Clarification with GitHub and Linear buttons](docs/screenshots/ui-clarify.png)
+Clicking "Linear" asks the question again with Linear in it:
 
-Clicking **Linear** asks again as *"show my issues in Linear"*:
+![Clarification answered](docs/screenshots/ui-clarify-resolved.png)
 
-![Clarification resolved to Linear](docs/screenshots/ui-clarify-resolved.png)
+An out-of-scope question:
 
-**Out of scope.** The router declines with the exact required message, and the trace
-shows why (no agent had enough evidence).
+![Fallback](docs/screenshots/ui-fallback.png)
 
-![Fallback for an out-of-scope question](docs/screenshots/ui-fallback.png)
+A question with two parts:
 
-**Multi-part question.** One section per part, each with its own agent, capability and
-trace.
+![Two-part question](docs/screenshots/ui-multi.png)
 
-![Compound question answered by GitHub and Linear](docs/screenshots/ui-multi.png)
+There's also a dark mode:
 
-**Dark theme.** Toggle in the header; the choice is remembered.
+![Dark mode](docs/screenshots/ui-dark.png)
 
-![Dark theme](docs/screenshots/ui-dark.png)
+## Commands
 
----
+Backend (from `backend/`):
 
-## 5. Command reference
+```bash
+pip install -r requirements-dev.txt     # install
+uvicorn app.main:app --reload           # run the API
+python -m app.cli                       # run the CLI
+pytest -v                               # tests
+python -m eval.run                      # accuracy report
+python -m eval.run --all                # show every question, not just misses
+```
 
-| Where | Command | Purpose |
-|---|---|---|
-| `backend/` | `python3 -m venv .venv && source .venv/bin/activate` | Create and activate a virtualenv |
-| `backend/` | `pip install -r requirements-dev.txt` | Install the app and test dependencies |
-| `backend/` | `pip install -r requirements-llm.txt` | Add the Anthropic SDK for hybrid mode |
-| `backend/` | `uvicorn app.main:app --reload` | API on :8000, docs at `/docs` |
-| `backend/` | `python -m app.cli` | Interactive CLI |
-| `backend/` | `python -m app.cli --trace "question"` | One question with the routing trace |
-| `backend/` | `pytest -v` | Run the tests |
-| `backend/` | `python -m eval.run` | Routing accuracy report |
-| `backend/` | `python -m eval.run --all` | Report every case, not only misses |
-| `backend/` | `python -m eval.run --strategy hybrid` | Accuracy with Claude escalation |
-| `frontend/` | `npm install` | Install dependencies |
-| `frontend/` | `npm run dev` | Dev server on :5173 |
-| `frontend/` | `npm run build` | Type-check and build |
-| `frontend/` | `npm run lint` | Lint |
-| repo root | `docker compose up --build -d` | Start API (:8000) and UI (:3000) |
-| repo root | `docker compose logs -f backend` | Follow routing logs |
-| repo root | `docker compose down` | Stop everything |
+Frontend (from `frontend/`):
+
+```bash
+npm install
+npm run dev
+npm run build
+npm run lint
+```
+
+Docker (from the project root):
+
+```bash
+docker compose up --build -d
+docker compose logs -f backend
+docker compose down
+```
